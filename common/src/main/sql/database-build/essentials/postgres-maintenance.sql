@@ -75,10 +75,12 @@ LANGUAGE plpgsql VOLATILE;
  * Function to drop the foreign keys before the data is loaded, so system.add_foreign_keys_after_load can add them back after the load.
  * While a table is loaded, a foreign key is checked row by row. Adding the key back to the filled table checks all rows in one pass.
  * The dropped keys are stored in system.dropped_foreign_keys. This is a normal table and not a temporary one, because the build script runs each call in a new session.
+ * Saving the definitions and dropping the keys are atomic. The table survives a failed load, so the keys can be restored after fixing the data.
+ * A failed build is incomplete: the dropped keys remain absent until restoration succeeds or the database is rebuilt.
  * Some foreign keys are left in place:
- * - Keys with an ON UPDATE or ON DELETE action, as the load could rely on that action.
+ * - Keys with CASCADE, SET NULL or SET DEFAULT actions, as the load could rely on those changes to referencing rows.
  * - NOT VALID keys, as adding one back would not check the loaded rows.
- * - The copies of a key on each partition, as they follow the key on the parent table.
+ * Copies of a key on each partition are dropped and restored through the parent key.
  *
  * Called during build by ruby build script, when load_data is given :foreign_keys_after_load.
  */
@@ -103,7 +105,12 @@ BEGIN
 
 			FROM pg_constraint
 
-			WHERE contype = 'f' AND conparentid = 0 AND convalidated AND confupdtype IN ('a', 'r') AND confdeltype IN ('a', 'r')
+			WHERE
+				contype = 'f' -- Only foreign keys.
+				AND conparentid = 0 -- Partition copies follow their parent constraint.
+				AND convalidated -- NOT VALID keys must keep checking new rows during the load.
+				AND confupdtype IN ('a', 'r') -- ON UPDATE: NO ACTION or RESTRICT.
+				AND confdeltype IN ('a', 'r') -- ON DELETE: NO ACTION or RESTRICT.
 	;
 
 	FOR foreign_keys IN
@@ -121,7 +128,9 @@ BEGIN
 	END LOOP;
 END;
 $BODY$
-LANGUAGE plpgsql VOLATILE;
+LANGUAGE plpgsql VOLATILE
+-- Save schema-qualified table names and REFERENCES targets, regardless of the caller's search_path.
+SET search_path = pg_catalog;
 
 
 /*
@@ -129,6 +138,7 @@ LANGUAGE plpgsql VOLATILE;
  * ---------------------------
  * Function to add back the foreign keys that system.drop_foreign_keys_before_load dropped, and to drop system.dropped_foreign_keys.
  * Adding a key checks all rows, so bad data still fails the build, with the usual error that names the table, the key and the value.
+ * Restoration and removal of the saved definitions are atomic. If any key fails validation, all definitions remain available for a retry.
  *
  * Called during build by ruby build script, when load_data is given :foreign_keys_after_load.
  */
@@ -147,7 +157,8 @@ BEGIN
 
 			FROM system.dropped_foreign_keys
 
-			ORDER BY tablename, constraintname
+			-- Restore partition parents first, so they cannot adopt an independent key on a partition.
+			ORDER BY (SELECT COUNT(*) FROM pg_partition_ancestors(tablename::regclass)), tablename, constraintname
 	LOOP
 		sql := 'ALTER TABLE ' || foreign_keys.tablename || ' ADD CONSTRAINT ' || quote_ident(foreign_keys.constraintname) || ' ' || foreign_keys.definition;
 		RAISE NOTICE '%', sql;
