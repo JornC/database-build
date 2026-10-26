@@ -10,8 +10,6 @@ The definitions are kept in `system.dropped_foreign_keys` because each build com
 
 The option requires the essentials module and is intended for a fresh database build. Load scripts must not rely on the dropped keys being present, including `DROP CONSTRAINT`, `COMMENT ON CONSTRAINT`, or foreign-key dependencies used by `TRUNCATE ... CASCADE` and `DROP ... CASCADE`.
 
-Regression tests: run `ruby test/foreign_keys_after_load_test.rb` from the repository root against a disposable PostgreSQL 15 or 17 server. The test user needs permission to create databases. Standard libpq environment variables select the server; `PSQL` can override the client command. Each test creates and removes its own database.
-
 ## validations
 The extended validation functionality. If you want to implement validations you will need this module as well.
 
