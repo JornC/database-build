@@ -205,9 +205,9 @@ class ScriptCommands
       $logger.error "Unknown parameter given to load_data()"
     end
 
-    drop_foreign_keys if foreign_keys_after_load
+    foreign_keys = drop_foreign_keys if foreign_keys_after_load
     run_load_script
-    add_foreign_keys if foreign_keys_after_load
+    add_foreign_keys(foreign_keys) if foreign_keys_after_load
   end
 
   def run_load_script
@@ -219,14 +219,16 @@ class ScriptCommands
 
   def drop_foreign_keys
     ensure_database_name
-    $logger.writeln "Dropping foreign keys..."
-    PostgresTools.execute_sql_command("SELECT #{$db_essentials_function_prefix}drop_foreign_keys_before_load()")
+    foreign_keys = PostgresTools.fetch_sql_command("SELECT * FROM #{$db_essentials_function_prefix}foreign_keys_to_drop_before_load()")
+    $logger.writeln "Dropping #{foreign_keys.size} foreign keys..."
+    PostgresTools.execute_sql_command("BEGIN;\n" + foreign_keys.map { |foreign_key| foreign_key['drop_statement'] + ";\n" }.join + "COMMIT;\n")
+    return foreign_keys
   end
 
-  def add_foreign_keys
+  def add_foreign_keys(foreign_keys)
     ensure_database_name
-    $logger.writeln_with_timing("Adding foreign keys back...") {
-      PostgresTools.execute_sql_command("SELECT #{$db_essentials_function_prefix}add_foreign_keys_after_load()")
+    $logger.writeln_with_timing("Adding #{foreign_keys.size} foreign keys back...") {
+      PostgresTools.execute_sql_command("BEGIN;\n" + foreign_keys.map { |foreign_key| foreign_key['add_statement'] + ";\n" }.join + "COMMIT;\n")
     }
   end
 
