@@ -81,6 +81,7 @@ LANGUAGE plpgsql VOLATILE;
  * - Keys with CASCADE, SET NULL or SET DEFAULT actions, as the load could rely on those changes to referencing rows.
  * - NOT VALID keys, as adding one back would not check the loaded rows.
  * Copies of a key on each partition are dropped and restored through the parent key.
+ * Meant for a load into a new database. The load must not rely on a dropped key, such as with DROP CONSTRAINT, COMMENT ON CONSTRAINT, or a TRUNCATE ... CASCADE or DROP ... CASCADE that should reach the referencing table.
  *
  * Called during build by ruby build script, when load_data is given :foreign_keys_after_load.
  */
