@@ -221,13 +221,13 @@ class ScriptCommands
     ensure_database_name
     foreign_keys = PostgresTools.fetch_sql_command("SELECT * FROM #{$db_essentials_function_prefix}foreign_key_drop_and_add_statements()")
     $logger.writeln "Dropping #{foreign_keys.size} foreign keys..."
-    foreign_keys.each { |foreign_key| execute_sql foreign_key['drop_statement'] }
+    execute_sql "BEGIN; " + foreign_keys.map { |foreign_key| foreign_key['drop_statement'] + "; " }.join + "COMMIT;"
     return foreign_keys
   end
 
   def add_foreign_keys(foreign_keys)
     $logger.writeln "Adding #{foreign_keys.size} foreign keys back..."
-    foreign_keys.each { |foreign_key| execute_sql foreign_key['add_statement'] }
+    execute_sql "BEGIN; " + foreign_keys.map { |foreign_key| foreign_key['add_statement'] + "; " }.join + "COMMIT;"
   end
 
   def execute_sql(statement)
