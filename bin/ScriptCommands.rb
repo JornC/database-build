@@ -219,17 +219,15 @@ class ScriptCommands
 
   def drop_foreign_keys
     ensure_database_name
-    foreign_keys = PostgresTools.fetch_sql_command("SELECT * FROM #{$db_essentials_function_prefix}foreign_keys_to_drop_before_load()")
+    foreign_keys = PostgresTools.fetch_sql_command("SELECT * FROM #{$db_essentials_function_prefix}foreign_key_drop_and_add_statements()")
     $logger.writeln "Dropping #{foreign_keys.size} foreign keys..."
-    PostgresTools.execute_sql_command("BEGIN;\n" + foreign_keys.map { |foreign_key| foreign_key['drop_statement'] + ";\n" }.join + "COMMIT;\n")
+    foreign_keys.each { |foreign_key| execute_sql foreign_key['drop_statement'] }
     return foreign_keys
   end
 
   def add_foreign_keys(foreign_keys)
-    ensure_database_name
-    $logger.writeln_with_timing("Adding #{foreign_keys.size} foreign keys back...") {
-      PostgresTools.execute_sql_command("BEGIN;\n" + foreign_keys.map { |foreign_key| foreign_key['add_statement'] + ";\n" }.join + "COMMIT;\n")
-    }
+    $logger.writeln "Adding #{foreign_keys.size} foreign keys back..."
+    foreign_keys.each { |foreign_key| execute_sql foreign_key['add_statement'] }
   end
 
   def execute_sql(statement)

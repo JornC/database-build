@@ -70,8 +70,8 @@ LANGUAGE plpgsql VOLATILE;
 
 
 /*
- * foreign_keys_to_drop_before_load
- * --------------------------------
+ * foreign_key_drop_and_add_statements
+ * -----------------------------------
  * Function that lists the foreign keys to drop before the data is loaded, with the statements to drop them and to add them back after the load.
  * While a table is loaded, a foreign key is checked row by row. Adding it back to the filled table checks all rows in one pass, so bad data still fails the build, with the usual error that names the table, the key and the value.
  * Some foreign keys are left in place:
@@ -82,7 +82,7 @@ LANGUAGE plpgsql VOLATILE;
  *
  * Called during build by ruby build script, when load_data is given :foreign_keys_after_load.
  */
-CREATE OR REPLACE FUNCTION system.foreign_keys_to_drop_before_load()
+CREATE OR REPLACE FUNCTION system.foreign_key_drop_and_add_statements()
 	RETURNS TABLE(drop_statement text, add_statement text) AS
 $BODY$
 	SELECT
@@ -101,6 +101,4 @@ $BODY$
 		-- Partition parents first, so when added back they cannot adopt an independent key on a partition.
 		ORDER BY (SELECT COUNT(*) FROM pg_partition_ancestors(conrelid)), conrelid::regclass::text, conname
 $BODY$
-LANGUAGE sql STABLE
--- Schema-qualified table names and REFERENCES targets, regardless of the caller's search_path.
-SET search_path = pg_catalog;
+LANGUAGE sql STABLE;
