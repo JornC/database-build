@@ -6,6 +6,13 @@
  * Depending on the boolean of the constant 'SKIP_REGISTER_LOAD_TABLE' (absent = false), source import-file and the checksum of the imported data is stored in the load_table_logs- table.
  * Optional, also tab-separated text without a header can be imported if the optional parameter is set to false.
  *
+ * When the table is empty, its foreign keys are dropped before the copy and added back after it, with their comments.
+ * A foreign key is otherwise checked row by row; adding it back checks all rows in one pass, so bad data still fails the load.
+ * Some foreign keys are left in place:
+ * - Keys with CASCADE, SET NULL or SET DEFAULT actions, as those do more than check.
+ * - NOT VALID keys, as adding one back would not check the copied rows.
+ * - Keys a partition has from its partitioned table, as only the partitioned table can drop those.
+ *
  * @param tablename The table to copy to.
  * @param filespec The file to copy from.
  * @param use_pretty_csv_format Optional parameter to specify if file contains a header (true) or not (false). Default true.
@@ -21,6 +28,10 @@ DECLARE
 	sql text;
 	v_checksum_before bigint;
 	v_skip_register_load_table boolean;
+	v_table_is_empty boolean;
+	v_foreign_key record;
+	v_restore_statements text[] = '{}';
+	v_restore_statement text;
 BEGIN
 	-- set encoding
 	EXECUTE 'SHOW client_encoding' INTO current_encoding;
@@ -43,11 +54,47 @@ BEGIN
 		extra_options := 'HEADER';
 	END IF;
 
+	EXECUTE 'SELECT NOT EXISTS (SELECT 1 FROM ' || tablename || ')' INTO v_table_is_empty;
+
+	IF v_table_is_empty THEN
+		FOR v_foreign_key IN
+			SELECT
+				conname,
+				pg_get_constraintdef(oid) AS definition,
+				obj_description(oid, 'pg_constraint') AS description
+
+				FROM pg_constraint
+
+				WHERE
+					conrelid = tablename
+					AND contype = 'f'
+					AND convalidated
+					AND confupdtype IN ('a', 'r') -- ON UPDATE: NO ACTION or RESTRICT.
+					AND confdeltype IN ('a', 'r') -- ON DELETE: NO ACTION or RESTRICT.
+					AND conparentid = 0
+
+				ORDER BY conname
+		LOOP
+			sql := format('ALTER TABLE %s DROP CONSTRAINT %I', tablename, v_foreign_key.conname);
+			RAISE NOTICE '% (added back after the COPY) @ %', sql, timeofday();
+			EXECUTE sql;
+
+			v_restore_statements := v_restore_statements || format('ALTER TABLE %s ADD CONSTRAINT %I %s', tablename, v_foreign_key.conname, v_foreign_key.definition);
+			IF v_foreign_key.description IS NOT NULL THEN
+				v_restore_statements := v_restore_statements || format('COMMENT ON CONSTRAINT %I ON %s IS %L', v_foreign_key.conname, tablename, v_foreign_key.description);
+			END IF;
+		END LOOP;
+	END IF;
+
 	sql := 'COPY ' || tablename || ' FROM ''' || filename || E''' DELIMITER ''' || delimiter_to_use || ''' CSV ' || extra_options;
 
 	RAISE NOTICE '% Starting @ %', sql, timeofday();
 	EXECUTE sql;
 	RAISE NOTICE '% Done @ %', sql, timeofday();
+
+	FOREACH v_restore_statement IN ARRAY v_restore_statements LOOP
+		EXECUTE v_restore_statement;
+	END LOOP;
 
 	IF v_skip_register_load_table IS FALSE THEN
 		PERFORM system.register_load_table(tablename::text, filename, v_checksum_before);
