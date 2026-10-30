@@ -96,27 +96,6 @@ $BODY$
 LANGUAGE SQL STABLE;
 
 
-/**
- * Insert the constant for adding the foreign keys after the copy in load_table, default = check them per row during the copy.
- */
-INSERT INTO system.constants (key, value) VALUES ('ADD_FOREIGN_KEYS_AFTER_COPY', 'FALSE');
-
-
-/*
- * should_add_foreign_keys_after_copy
- * ----------------------------------
- * Function that determines if load_table drops the foreign keys of an empty table before the copy and adds them back after it (TRUE), based on the constant 'ADD_FOREIGN_KEYS_AFTER_COPY'.
- * If the constant is not present in the database, the foreign keys stay in place and are checked per row (default = FALSE).
- * Used in the load_table function.
- */
-CREATE OR REPLACE FUNCTION system.should_add_foreign_keys_after_copy()
-	RETURNS boolean AS
-$BODY$
-	SELECT COALESCE((SELECT value FROM system.constants WHERE key = 'ADD_FOREIGN_KEYS_AFTER_COPY'), 'FALSE')::boolean
-$BODY$
-LANGUAGE SQL STABLE;
-
-
 /*
  * current_build_common_module_repos_view
  * --------------------------------------

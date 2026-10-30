@@ -6,7 +6,7 @@
  * Depending on the boolean of the constant 'SKIP_REGISTER_LOAD_TABLE' (absent = false), source import-file and the checksum of the imported data is stored in the load_table_logs- table.
  * Optional, also tab-separated text without a header can be imported if the optional parameter is set to false.
  *
- * Depending on the boolean of the constant 'ADD_FOREIGN_KEYS_AFTER_COPY' (absent = false), when the table is empty, its foreign keys are dropped before the copy and added back after it, with their comments.
+ * When the table is empty, its foreign keys are dropped before the copy and added back after it, with their comments.
  * A foreign key is otherwise checked row by row; adding it back checks all rows in one pass, so bad data still fails the load.
  * Some foreign keys are left in place:
  * - Keys with CASCADE, SET NULL or SET DEFAULT actions, as those do more than check.
@@ -28,7 +28,7 @@ DECLARE
 	sql text;
 	v_checksum_before bigint;
 	v_skip_register_load_table boolean;
-	v_table_is_empty boolean = FALSE;
+	v_table_is_empty boolean;
 	v_foreign_key record;
 	v_restore_statements text[] = '{}';
 	v_restore_statement text;
@@ -54,9 +54,7 @@ BEGIN
 		extra_options := 'HEADER';
 	END IF;
 
-	IF system.should_add_foreign_keys_after_copy() THEN
-		EXECUTE 'SELECT NOT EXISTS (SELECT 1 FROM ' || tablename || ')' INTO v_table_is_empty;
-	END IF;
+	EXECUTE 'SELECT NOT EXISTS (SELECT 1 FROM ' || tablename || ')' INTO v_table_is_empty;
 
 	IF v_table_is_empty THEN
 		FOR v_foreign_key IN
